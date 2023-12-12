@@ -63,9 +63,6 @@ pub struct BackupFile {
 
 #[derive(Default, Debug)]
 pub struct BackupBuilder {
-    // TODO: Use Rc<Path> as key to mini.files, and
-    // have a cache of Rc<Paths> here from the BackupView being updated
-    // so they can be reused instead of cloning PathBufs a bunch
     mini: MinimizedBackup,
 }
 
