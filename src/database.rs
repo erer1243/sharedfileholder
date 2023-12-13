@@ -1,16 +1,13 @@
-use std::{
-    collections::{BTreeMap, BTreeSet, HashMap, HashSet},
-    fs::File,
-    io::{BufReader, BufWriter},
-    path::{Path, PathBuf},
-    rc::Rc,
-    time::{Duration, SystemTime},
-};
-
 use blake3::Hash;
 use eyre::Result;
 use serde::{Deserialize, Serialize};
-use slotmap::SlotMap;
+use std::{
+    collections::{BTreeMap, BTreeSet, HashMap},
+    fs::File,
+    io::{BufReader, BufWriter},
+    path::{Path, PathBuf},
+    time::{Duration, SystemTime},
+};
 
 #[derive(Serialize, Deserialize, Default)]
 pub struct Database {
@@ -66,7 +63,7 @@ struct DataBlockMetadata {
     mtime: MTime,
 }
 
-#[derive(Serialize, Deserialize, Copy, Clone, PartialEq, Eq, Ord, Debug)]
+#[derive(Serialize, Deserialize, Copy, Clone, PartialEq, Eq, Debug)]
 pub struct MTime {
     sec: u64,
     nano: u32,
@@ -74,9 +71,15 @@ pub struct MTime {
 
 impl PartialOrd for MTime {
     fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl Ord for MTime {
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
         let a = Duration::new(self.sec, self.nano);
         let b = Duration::new(other.sec, other.nano);
-        a.partial_cmp(&b)
+        a.cmp(&b)
     }
 }
 
@@ -109,10 +112,6 @@ impl<'a> BackupView<'a> {
             meta,
             data_block_mtime,
         })
-    }
-
-    pub fn num_files(&self) -> usize {
-        self.backup.files.len()
     }
 }
 

@@ -6,19 +6,14 @@ mod storage;
 use blake3::{Hash, Hasher};
 use clap::Parser;
 use database::{BackupBuilder, BackupView, Database, MTime};
-use derive_more::{Display, From};
-use eyre::{bail, ensure, eyre, Context, Result};
-use serde::{Deserialize, Serialize};
+use eyre::{bail, ensure, Context, Result};
 use std::{
-    collections::{BTreeMap, BTreeSet, HashMap, HashSet},
     env::current_dir,
-    fmt::Debug,
-    fs::{read_dir, read_link, File, Metadata},
-    io::{self, copy, BufReader, BufWriter},
+    fs::{read_dir, read_link},
+    io::{self},
     path::{Path, PathBuf},
     process::exit,
 };
-use thiserror::Error;
 use walkdir::{DirEntry as WalkDirEntry, DirEntryExt, WalkDir};
 
 #[derive(Parser)]
@@ -89,7 +84,7 @@ fn cmd_backup(vault_dir: &Path, bkup_name: &str, bkup_root: &Path) -> Result<()>
     let walk_dir = WalkDir::new(bkup_root).into_iter().skip(1);
     for dir_entry_res in walk_dir {
         let dir_entry = dir_entry_res.context("dir_entry").map(DirEntry::new)??;
-        backup_single_dir_entry(&mut state, dir_entry);
+        backup_single_dir_entry(&mut state, dir_entry)?;
     }
 
     // Ingest new fields into storage
@@ -107,7 +102,7 @@ fn backup_single_dir_entry(state: &mut BackupState, dir_entry: DirEntry) -> Resu
     let bkup_path = dir_entry.path_relative_to(state.bkup_root);
     match dir_entry {
         DirEntry::File { path, ino, mtime } => {
-            let maybe_old_file = state.old.as_ref().map(|bkup| bkup.get_file(ino)).flatten();
+            let maybe_old_file = state.old.as_ref().and_then(|bkup| bkup.get_file(ino));
             match maybe_old_file {
                 Some(old_file) if mtime <= old_file.data_block_mtime() => {
                     let hash = old_file.hash();
@@ -173,10 +168,10 @@ impl DirEntry {
 
     fn path(&self) -> &Path {
         match self {
-            DirEntry::File { path, .. } => &path,
-            DirEntry::Directory { path, .. } => &path,
-            DirEntry::Symlink { path, .. } => &path,
-            DirEntry::Special { path, .. } => &path,
+            DirEntry::File { path, .. } => path,
+            DirEntry::Directory { path, .. } => path,
+            DirEntry::Symlink { path, .. } => path,
+            DirEntry::Special { path, .. } => path,
         }
     }
 
