@@ -23,7 +23,9 @@ use walkdir::{DirEntry as WalkDirEntry, DirEntryExt, WalkDir};
 
 #[derive(Parser)]
 enum Command {
-    Init,
+    Init {
+        vault_dir: Option<PathBuf>,
+    },
     Backup {
         database: PathBuf,
         backup_name: String,
@@ -34,7 +36,7 @@ enum Command {
 fn main() {
     let cmd = Command::parse();
     let res = match cmd {
-        Command::Init => cmd_init(),
+        Command::Init { vault_dir } => cmd_init(vault_dir),
         Command::Backup {
             database,
             backup_name,
@@ -47,35 +49,39 @@ fn main() {
     }
 }
 
-fn cmd_init() -> Result<()> {
+fn cmd_init(maybe_dir: Option<PathBuf>) -> Result<()> {
+    let dir = match maybe_dir {
+        Some(d) => d,
+        None => current_dir().context("current_dir")?,
+    };
+
     // Check that dir is empty
-    let cwd = current_dir().context("current_dir")?;
-    let mut read_dir = read_dir(&cwd).context("read_dir")?;
-    ensure!(read_dir.next().is_none(), "{cwd:?} is not empty");
+    let mut read_dir = read_dir(&dir).context("read_dir")?;
+    ensure!(read_dir.next().is_none(), "{} is not empty", dir.display());
 
     // Make empty database file
-    Database::default().write("database.json")
+    Database::default().write(dir.join("database.ron"))
 }
 
-struct BackupState<'a> {
+struct BackupState<'a, 'b> {
     bkup_name: &'a str,
     bkup_root: &'a Path,
-    db: Database,
-    old: BackupView,
+    old: Option<BackupView<'b>>,
     new: BackupBuilder,
-    unchanged_files: HashSet<PathBuf>,
 }
 
-fn cmd_backup(db_path: &Path, bkup_name: &str, bkup_root: &Path) -> Result<()> {
+fn cmd_backup(vault_dir: &Path, bkup_name: &str, bkup_root: &Path) -> Result<()> {
+    let db_path = vault_dir.join("database.ron");
+    let db_path = db_path.as_path();
+
     let mut db = Database::load(db_path).context_2("loading database", db_path)?;
-    let old = db.take_backup(bkup_name).unwrap_or_default();
+    let old = db.get_backup(bkup_name);
+
     let mut state = BackupState {
         bkup_name,
         bkup_root,
-        db,
         old,
         new: BackupBuilder::new(),
-        unchanged_files: HashSet::new(),
     };
 
     // Scan dir entries
@@ -86,6 +92,14 @@ fn cmd_backup(db_path: &Path, bkup_name: &str, bkup_root: &Path) -> Result<()> {
         backup_single_dir_entry(&mut state, dir_entry);
     }
 
+    // Ingest new fields into storage
+    for (path, hash, _) in state.new.iter_new_files() {
+        storage::store_file(vault_dir, path, hash).context_2("store_file", path)?;
+    }
+
+    db.insert_backup_builder(bkup_name, state.new);
+    db.write(db_path).context_2("writing database", db_path)?;
+
     Ok(())
 }
 
@@ -93,29 +107,32 @@ fn backup_single_dir_entry(state: &mut BackupState, dir_entry: DirEntry) -> Resu
     let bkup_path = dir_entry.path_relative_to(state.bkup_root);
     match dir_entry {
         DirEntry::File { path, ino, mtime } => {
-            let hash = match backup_unchanged_file_hash(state, ino, mtime) {
-                Some(old_hash) => {
-                    state.unchanged_files.insert(path);
-                    old_hash
+            let maybe_old_file = state.old.as_ref().map(|bkup| bkup.get_file(ino)).flatten();
+            match maybe_old_file {
+                Some(old_file) if mtime <= old_file.data_block_mtime() => {
+                    let hash = old_file.hash();
+                    state.new.insert_unchanged_file(bkup_path, hash, ino);
                 }
-                None => hash_file(&path)?,
-            };
-            state.new.insert_file(bkup_path, hash, ino);
+                Some(old_file) => {
+                    let hash = hash_file(&path)?;
+                    if old_file.hash() == hash {
+                        state.new.insert_unchanged_file(bkup_path, hash, ino);
+                    } else {
+                        state.new.insert_new_file(path, bkup_path, hash, ino, mtime);
+                    }
+                }
+                None => {
+                    let hash = hash_file(&path)?;
+                    state.new.insert_new_file(path, bkup_path, hash, ino, mtime);
+                }
+            }
         }
         DirEntry::Directory { .. } => state.new.insert_directory(bkup_path),
         DirEntry::Symlink { target, .. } => state.new.insert_symlink(bkup_path, target),
-        DirEntry::Special { path } => bail!("{path:?}: special file"),
+        DirEntry::Special { path } => bail!("{}: special file", path.display()),
     }
 
     Ok(())
-}
-
-fn backup_unchanged_file_hash(state: &BackupState, ino: u64, mtime: MTime) -> Option<Hash> {
-    state
-        .old
-        .file_by_inode(ino)
-        .filter(|bkup_file| bkup_file.data_block_mtime <= mtime)
-        .map(|bkup_file| bkup_file.hash)
 }
 
 enum DirEntry {
@@ -169,35 +186,16 @@ impl DirEntry {
 }
 
 fn hash_file(path: &Path) -> io::Result<Hash> {
-    let mut file = BufReader::new(File::open(path)?);
-    let mut hasher = Hasher::new();
-    copy(&mut file, &mut hasher)?;
-    Ok(hasher.finalize())
+    Ok(Hasher::new().update_mmap(path)?.finalize())
 }
-
-/*
-#[derive(Error, Debug)]
-enum FatalError {
-    #[error("IO error: {0}")]
-    IO(#[from] io::Error),
-
-    #[error("vault in invalid state: {0}")]
-    InvalidState(#[from] InvalidStateError),
-}
-
-#[derive(Error, From, Debug, Display)]
-struct InvalidStateError {
-    description: String,
-}
-*/
 
 trait ContextExt<T, E>: Context<T, E> + Sized {
-    fn context_debug<D: Debug>(self, obj: D) -> Result<T> {
-        self.with_context(|| format!("{obj:?}"))
-    }
+    // fn context_debug<D: Debug>(self, obj: D) -> Result<T> {
+    //     self.with_context(|| format!("{obj:?}"))
+    // }
 
-    fn context_2<D: Debug>(self, msg: &str, obj: D) -> Result<T> {
-        self.with_context(|| format!("{msg}: {obj:?}"))
+    fn context_2<P: AsRef<Path>>(self, msg: &str, path: P) -> Result<T> {
+        self.with_context(|| format!("{msg} ({})", path.as_ref().display()))
     }
 }
 

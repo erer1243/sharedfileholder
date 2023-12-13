@@ -12,123 +12,53 @@ use eyre::Result;
 use serde::{Deserialize, Serialize};
 use slotmap::SlotMap;
 
-slotmap::new_key_type! { struct BackupFileKey; }
-
-#[derive(Default, Debug)]
-pub struct BackupView {
-    directories: BTreeSet<PathBuf>,
-    symlinks: BTreeMap<PathBuf, PathBuf>,
-
-    files: SlotMap<BackupFileKey, BackupFile>,
-    files_by_inode: HashMap<u64, BackupFileKey>,
-}
-
-impl BackupView {
-    fn expand(mini: MinimizedBackup, db: &Database) -> Self {
-        let mut files = SlotMap::with_capacity_and_key(mini.files.len());
-        let mut files_by_inode = HashMap::with_capacity(mini.files.len());
-
-        for (path, file) in mini.files {
-            let key = files.insert(BackupFile {
-                path: path.clone(),
-                hash: file.hash,
-                source_inode: file.source_inode,
-                data_block_mtime: db.get_data_block_mtime(file.hash),
-            });
-            files_by_inode.insert(file.source_inode, key);
-        }
-
-        Self {
-            directories: mini.directories,
-            symlinks: mini.symlinks,
-            files,
-            files_by_inode,
-        }
-    }
-
-    pub fn file_by_inode(&self, ino: u64) -> Option<&BackupFile> {
-        self.files_by_inode
-            .get(&ino)
-            .map(|key| self.files.get(*key).unwrap())
-    }
-}
-
-#[derive(Debug)]
-pub struct BackupFile {
-    pub path: PathBuf,
-    pub hash: Hash,
-    pub source_inode: u64,
-    pub data_block_mtime: MTime,
-}
-
-#[derive(Default, Debug)]
-pub struct BackupBuilder {
-    mini: MinimizedBackup,
-}
-
-impl BackupBuilder {
-    pub fn new() -> Self {
-        Self::default()
-    }
-
-    pub fn insert_directory(&mut self, path: PathBuf) {
-        self.mini.directories.insert(path);
-    }
-
-    pub fn insert_symlink(&mut self, path: PathBuf, target: PathBuf) {
-        self.mini.symlinks.insert(path, target);
-    }
-
-    pub fn insert_file(&mut self, path: PathBuf, hash: Hash, source_inode: u64) {
-        let mbf = MinimizedBackupFile { hash, source_inode };
-        self.mini.files.insert(path, mbf);
-    }
-}
-
 #[derive(Serialize, Deserialize, Default)]
 pub struct Database {
-    backups: BTreeMap<String, MinimizedBackup>,
+    backups: BTreeMap<String, Backup>,
     data_blocks: HashMap<Hash, DataBlockMetadata>,
 }
 
 impl Database {
     pub fn load<P: AsRef<Path>>(path: P) -> Result<Self> {
         let f = BufReader::new(File::open(path)?);
-        Ok(serde_json::from_reader(f)?)
+        Ok(ron::de::from_reader(f)?)
     }
 
     pub fn write<P: AsRef<Path>>(&self, path: P) -> Result<()> {
         let f = BufWriter::new(File::create(path)?);
-        serde_json::to_writer(f, self)?;
+        ron::ser::to_writer_pretty(f, self, ron::ser::PrettyConfig::default())?;
         Ok(())
     }
 
-    pub fn take_backup(&mut self, name: &str) -> Option<BackupView> {
-        self.backups
-            .remove(name)
-            .map(|mini| BackupView::expand(mini, self))
+    pub fn get_backup(&self, name: &str) -> Option<BackupView> {
+        let backup = self.backups.get(name)?;
+        Some(BackupView {
+            backup,
+            data_blocks: &self.data_blocks,
+        })
     }
 
-    pub fn insert_backup_builder(&mut self, name: &str, bb: BackupBuilder) {
-        self.backups.insert(name.to_owned(), bb.mini);
-    }
-
-    fn get_data_block_mtime(&self, hash: Hash) -> MTime {
-        self.data_blocks.get(&hash).unwrap().mtime
+    pub fn insert_backup_builder(&mut self, name: &str, bb: BackupBuilder) -> BackupView {
+        self.backups.insert(name.to_owned(), bb.inner);
+        for (_, hash, mtime) in bb.new_files {
+            let prev = self.data_blocks.insert(hash, DataBlockMetadata { mtime });
+            assert!(prev.is_none());
+        }
+        self.get_backup(name).unwrap()
     }
 }
 
 #[derive(Serialize, Deserialize, Debug, Default)]
-struct MinimizedBackup {
-    files: BTreeMap<PathBuf, MinimizedBackupFile>,
+struct Backup {
+    files: BTreeMap<u64, BackupFileMetadata>,
     directories: BTreeSet<PathBuf>,
     symlinks: BTreeMap<PathBuf, PathBuf>,
 }
 
 #[derive(Serialize, Deserialize, Debug)]
-struct MinimizedBackupFile {
+struct BackupFileMetadata {
+    path: PathBuf,
     hash: Hash,
-    source_inode: u64,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -142,15 +72,11 @@ pub struct MTime {
     nano: u32,
 }
 
-impl MTime {
-    fn as_duration(self) -> Duration {
-        Duration::new(self.sec, self.nano)
-    }
-}
-
 impl PartialOrd for MTime {
     fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
-        self.as_duration().partial_cmp(&other.as_duration())
+        let a = Duration::new(self.sec, self.nano);
+        let b = Duration::new(other.sec, other.nano);
+        a.partial_cmp(&b)
     }
 }
 
@@ -161,5 +87,99 @@ impl From<SystemTime> for MTime {
             sec: dur.as_secs(),
             nano: dur.subsec_nanos(),
         }
+    }
+}
+
+pub struct BackupView<'a> {
+    backup: &'a Backup,
+    data_blocks: &'a HashMap<Hash, DataBlockMetadata>,
+}
+
+impl<'a> BackupView<'a> {
+    pub fn get_file(&self, ino: u64) -> Option<BackupFile> {
+        let meta = self.backup.files.get(&ino)?;
+        let data_block_mtime = self
+            .data_blocks
+            .get(&meta.hash)
+            .unwrap_or_else(|| panic!("inode {ino} in backup but has no data_blocks entry"))
+            .mtime;
+
+        Some(BackupFile {
+            ino,
+            meta,
+            data_block_mtime,
+        })
+    }
+
+    pub fn num_files(&self) -> usize {
+        self.backup.files.len()
+    }
+}
+
+pub struct BackupFile<'a> {
+    meta: &'a BackupFileMetadata,
+    ino: u64,
+    data_block_mtime: MTime,
+}
+
+impl<'a> BackupFile<'a> {
+    pub fn ino(&self) -> u64 {
+        self.ino
+    }
+
+    pub fn path(&self) -> &PathBuf {
+        &self.meta.path
+    }
+
+    pub fn hash(&self) -> Hash {
+        self.meta.hash
+    }
+
+    pub fn data_block_mtime(&self) -> MTime {
+        self.data_block_mtime
+    }
+}
+
+#[derive(Default, Debug)]
+pub struct BackupBuilder {
+    inner: Backup,
+    new_files: Vec<(PathBuf, Hash, MTime)>,
+}
+
+impl BackupBuilder {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    pub fn insert_directory(&mut self, path: PathBuf) {
+        self.inner.directories.insert(path);
+    }
+
+    pub fn insert_symlink(&mut self, path: PathBuf, target: PathBuf) {
+        self.inner.symlinks.insert(path, target);
+    }
+
+    pub fn insert_new_file(
+        &mut self,
+        source: PathBuf,
+        path: PathBuf,
+        hash: Hash,
+        ino: u64,
+        mtime: MTime,
+    ) {
+        let mbf = BackupFileMetadata { path, hash };
+        self.inner.files.insert(ino, mbf);
+        self.new_files.push((source, hash, mtime));
+    }
+
+    pub fn insert_unchanged_file(&mut self, path: PathBuf, hash: Hash, ino: u64) {
+        let mbf = BackupFileMetadata { path, hash };
+        self.inner.files.insert(ino, mbf);
+    }
+
+    pub fn iter_new_files(&self) -> impl Iterator<Item = (&Path, Hash, MTime)> {
+        self.new_files
+            .iter()
+            .map(|(pb, h, mt)| (pb.as_ref(), *h, *mt))
     }
 }
