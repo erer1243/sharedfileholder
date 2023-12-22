@@ -15,7 +15,17 @@ pub struct Database {
     data_blocks: HashMap<Hash, DataBlockMetadata>,
 }
 
+const DATABASE_NAME: &str = "database.ron";
+
 impl Database {
+    pub fn load_from_vault<P: AsRef<Path>>(path: P) -> Result<Self> {
+        Self::load(path.as_ref().join(DATABASE_NAME))
+    }
+
+    pub fn write_to_vault<P: AsRef<Path>>(&self, path: P) -> Result<()> {
+        self.write(path.as_ref().join(DATABASE_NAME))
+    }
+
     pub fn load<P: AsRef<Path>>(path: P) -> Result<Self> {
         let f = BufReader::new(File::open(path)?);
         Ok(ron::de::from_reader(f)?)

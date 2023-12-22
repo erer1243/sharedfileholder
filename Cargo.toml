@@ -7,7 +7,7 @@ edition = "2021"
 
 [dependencies]
 blake3 = { version = "1.5.0", features = ["serde", "mmap"] }
-clap = { version = "4.4.10", features = ["derive"] }
+clap = { version = "4.4.10", features = ["derive", "unstable-doc"] }
 eyre = "0.6.9"
 ron = "0.8.1"
 serde = { version = "1.0.193", features = ["derive", "rc"] }
