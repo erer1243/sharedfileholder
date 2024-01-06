@@ -1,4 +1,3 @@
-use slotmap::{DefaultKey, SlotMap};
 use std::{
     cell::RefCell,
     collections::HashMap,
@@ -9,7 +8,7 @@ use std::{
 };
 
 struct FieldMap2<Owner, Field1, Field2, Getter1, Getter2> {
-    data: SlotMap<DefaultKey, Owner>,
+    data: Vec<Owner>,
     map1: RefCell<InnerFieldMap<Owner, Field1, Getter1>>,
     map2: RefCell<InnerFieldMap<Owner, Field2, Getter2>>,
 }
@@ -23,7 +22,7 @@ where
 {
     pub fn new(k1g: Getter1, k2g: Getter2) -> Self {
         Self {
-            data: SlotMap::new(),
+            data: Vec::new(),
             map1: RefCell::new(InnerFieldMap::new(k1g)),
             map2: RefCell::new(InnerFieldMap::new(k2g)),
         }
@@ -44,13 +43,21 @@ where
 
     pub fn get_k1(&self, k1: &Field1) -> Option<&Owner> {
         // SAFETY: self.insert() ensures map validity
-        let slotkey = unsafe { self.map1.borrow_mut().get(k1, &self.data)? };
+        let slotkey = unsafe {
+            self.map1
+                .borrow_mut()
+                .get(k1, self.data.iter().enumerate())?
+        };
         self.data.get(slotkey)
     }
 
     pub fn get_k2(&self, k2: &Field2) -> Option<&Owner> {
         // SAFETY: self.insert() ensures map validity
-        let slotkey = unsafe { self.map2.borrow_mut().get(k2, &self.data)? };
+        let slotkey = unsafe {
+            self.map2
+                .borrow_mut()
+                .get(k2, self.data.iter().enumerate())?
+        };
         self.data.get(slotkey)
     }
 
@@ -93,8 +100,9 @@ where
     pub fn insert(&mut self, owner: Owner) -> Result<(), FieldOverlapError<Owner>> {
         let map1 = self.map1.get_mut();
         let map2 = self.map2.get_mut();
-        let overlap_1 = unsafe { map1.contains(&owner, &self.data) };
-        let overlap_2 = unsafe { map2.contains(&owner, &self.data) };
+        let data_iter = self.data.iter().enumerate();
+        let overlap_1 = unsafe { map1.contains(&owner, data_iter.clone()) };
+        let overlap_2 = unsafe { map2.contains(&owner, data_iter) };
 
         if let Some(key) = overlap_1.or(overlap_2) {
             let overlap = &self.data[key];
@@ -108,7 +116,7 @@ where
         // self.data will reallocate upon insert. The maps must be
         // invalidated, because their UnsafePtrKeys will become dangling.
         let invalidate = self.data.capacity() == self.data.len();
-        let key = self.data.insert(owner);
+        self.data.push(owner);
         if invalidate {
             map1.invalidate();
             map2.invalidate();
@@ -116,22 +124,23 @@ where
             // An insert is only necessary when the field maps remain valid,
             // because invalidation causes a rebuild, and a rebuild
             // automatically inserts all keys from self.data anyway.
-            let owner = &self.data[key];
-            map1.insert(owner, key);
-            map2.insert(owner, key);
+            let idx = self.data.len() - 1;
+            let owner = &self.data[idx];
+            map1.insert(owner, idx);
+            map2.insert(owner, idx);
         }
 
         Ok(())
     }
 
     pub fn iter(&self) -> impl Iterator<Item = &Owner> {
-        self.data.iter().map(|(_, owner)| owner)
+        self.data.iter()
     }
 }
 
 struct InnerFieldMap<Owner, Field, Getter> {
     valid: bool,
-    map: HashMap<UnsafePtrKey<Field>, DefaultKey>,
+    map: HashMap<UnsafePtrKey<Field>, usize>,
     getter: Getter,
     _phantom_getter: PhantomData<fn(&Owner) -> &Field>,
 }
@@ -157,10 +166,10 @@ where
     // SAFETY: The self.valid flag must be accurate. If the Owners of Fields may
     // have moved, i.e. because the owning SlotMap has been mutated, this map
     // must be marked invalid before calling get().
-    unsafe fn get<'a, I>(&mut self, k: &Field, iter: I) -> Option<DefaultKey>
+    unsafe fn get<'a, I>(&mut self, k: &Field, iter: I) -> Option<usize>
     where
         Owner: 'a,
-        I: IntoIterator<Item = (DefaultKey, &'a Owner)>,
+        I: IntoIterator<Item = (usize, &'a Owner)>,
     {
         if !self.valid {
             self.rebuild(iter);
@@ -170,10 +179,10 @@ where
     }
 
     // SAFETY: See Self::get.
-    unsafe fn contains<'a, I>(&mut self, owner: &Owner, iter: I) -> Option<DefaultKey>
+    unsafe fn contains<'a, I>(&mut self, owner: &Owner, iter: I) -> Option<usize>
     where
         Owner: 'a,
-        I: IntoIterator<Item = (DefaultKey, &'a Owner)>,
+        I: IntoIterator<Item = (usize, &'a Owner)>,
     {
         let k = (self.getter)(owner);
         self.get(k, iter)
@@ -182,7 +191,7 @@ where
     fn rebuild<'a, I>(&mut self, iter: I)
     where
         Owner: 'a,
-        I: IntoIterator<Item = (DefaultKey, &'a Owner)>,
+        I: IntoIterator<Item = (usize, &'a Owner)>,
     {
         self.map.clear();
         self.valid = true;
@@ -192,7 +201,7 @@ where
         }
     }
 
-    fn insert(&mut self, owner: &Owner, key: DefaultKey) {
+    fn insert(&mut self, owner: &Owner, key: usize) {
         let field = (self.getter)(owner);
         self.map.insert(UnsafePtrKey(field), key);
     }
@@ -301,4 +310,6 @@ fn fieldmap2() {
     assert!(map
         .insert_multi([S(20, 30, 40), S(50, 60, 70), S(80, 90, 100)])
         .is_ok());
+
+    assert!(map.insert_multi([S(20, -1, -1)]).is_err());
 }
