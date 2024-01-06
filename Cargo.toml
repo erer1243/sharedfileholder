@@ -9,7 +9,22 @@ edition = "2021"
 blake3 = { version = "1.5.0", features = ["serde", "mmap"] }
 clap = { version = "4.4.10", features = ["derive", "unstable-doc"] }
 eyre = "0.6.9"
-ron = "0.8.1"
+# ron = "0.8.1"
 serde = { version = "1.0.193", features = ["derive", "rc"] }
 # thiserror = "1.0.50"
 walkdir = "2.4.0"
+serde_json = "1.0"
+strum = { version = "0.25.0", features = ["derive"] }
+slotmap = { version = "1.0.7", features = ["serde"] }
+# self_cell = "1.0.3"
+
+[dev-dependencies]
+mktemp = "0.5.1"
+
+[lib]
+name = "sharedfileholder"
+path = "src/lib.rs"
+
+[[bin]]
+name = "backup"
+path = "src/main.rs"

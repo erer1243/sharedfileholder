@@ -1,14 +1,14 @@
-use crate::ContextExt;
-use blake3::Hash;
-use eyre::{bail, Context, Result};
+use eyre::{Context, Result};
 use std::{
     fs,
     path::{Path, PathBuf},
 };
 use walkdir::WalkDir;
 
+use crate::util::{ContextExt, Hash};
+
 fn hash_to_path(base: &Path, hash: Hash) -> PathBuf {
-    let hex = hash.to_hex();
+    let hex = hash.inner().to_hex();
     let first_hex_byte = hex.split_at(2).0;
     let mut path = base.join(first_hex_byte);
     path.push(hex.as_str());
@@ -17,8 +17,9 @@ fn hash_to_path(base: &Path, hash: Hash) -> PathBuf {
 
 pub fn store_file(vault: &Path, source: &Path, hash: Hash) -> Result<()> {
     let dest = hash_to_path(vault, hash);
+
     if dest.try_exists().context_2("stat", &dest)? {
-        bail!("File with hash {hash} already exists in vault. It should be skipped!");
+        return Ok(());
     }
 
     let dir = dest.parent().unwrap();
