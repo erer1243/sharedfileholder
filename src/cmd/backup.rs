@@ -89,7 +89,7 @@ fn backup_single_dir_entry(state: &mut BackupState, dir_entry: DirEntry) -> Resu
             match old_file {
                 // Same inode & older mtime, we assume it's the same file.
                 // TODO: check size
-                Some(old_file) if mtime <= old_file.data_block_mtime() => {
+                Some(old_file) if mtime <= old_file.mtime() => {
                     let hash = old_file.hash();
                     new_bkup.insert_unchanged_file(bkup_path, hash, ino);
                 }

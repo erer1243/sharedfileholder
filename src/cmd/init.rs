@@ -1,25 +1,17 @@
 use clap::Args;
-use eyre::{ensure, Context, Result};
-use std::{fs::read_dir, path::PathBuf};
-
-use crate::{database::Database, util::path_or_cwd};
+use eyre::Result;
 
 use super::GlobalArgs;
+use crate::{
+    database::Database,
+    util::{ensure_dir_exists_and_is_empty, path_or_cwd},
+};
 
 #[derive(Args)]
 pub struct CliArgs {}
 
 pub fn run(gargs: GlobalArgs, _args: CliArgs) -> Result<()> {
-    init(gargs.vault_dir)
-}
-
-fn init(vault_dir: Option<PathBuf>) -> Result<()> {
-    let dir = path_or_cwd(vault_dir);
-
-    // Check that dir is empty
-    let mut read_dir = read_dir(&dir).context("read_dir")?;
-    ensure!(read_dir.next().is_none(), "{} is not empty", dir.display());
-
-    // Make empty database file
-    Database::default().write_to_vault(dir)
+    let vault_dir = &path_or_cwd(gargs.vault_dir);
+    ensure_dir_exists_and_is_empty(vault_dir)?;
+    Database::new().write_to_vault(vault_dir)
 }

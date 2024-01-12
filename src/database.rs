@@ -2,38 +2,47 @@ use crate::{
     backup::{Backup, BackupBuilder, BackupView},
     util::{ContextExt, Hash, MTime},
 };
+use derive_more::{Deref, DerefMut};
 use eyre::Result;
-use serde::{Deserialize, Serialize};
+use fieldmap::ClonedFieldMap;
+use serde::{Deserialize, Deserializer, Serialize};
 use std::{
-    collections::{BTreeMap, HashMap},
+    collections::BTreeMap,
     fs::File,
     io::{BufReader, BufWriter},
     path::Path,
 };
 
-#[derive(Serialize, Deserialize, Default)]
+#[derive(Serialize, Deserialize)]
 pub struct Database {
     backups: BTreeMap<String, Backup>,
-    data_blocks: HashMap<Hash, DataBlockMetadata>,
-}
-
-/// DataBlock but
-#[derive(Serialize, Deserialize, Copy, Clone, Debug)]
-pub struct DataBlockMetadata {
-    mtime: MTime,
-    size: u64,
+    data_blocks: DataBlocks,
 }
 
 /// POD struct with information about a data block in storage.
+#[derive(Serialize, Deserialize, Copy, Clone, Debug)]
 pub struct DataBlock {
     pub hash: Hash,
     pub mtime: MTime,
     pub size: u64,
 }
 
+impl DataBlock {
+    fn hash(&self) -> &Hash {
+        &self.hash
+    }
+}
+
 const DATABASE_NAME: &str = "database.json";
 
 impl Database {
+    pub fn new() -> Self {
+        Self {
+            backups: BTreeMap::new(),
+            data_blocks: DataBlocks::new(),
+        }
+    }
+
     pub fn load_from_vault<P: AsRef<Path>>(path: P) -> Result<Self> {
         let path = path.as_ref().join(DATABASE_NAME);
         let f = BufReader::new(File::open(&path).context_2("reading db file", &path)?);
@@ -69,14 +78,33 @@ impl Database {
 
     pub fn insert_backup_builder(&mut self, name: &str, bb: BackupBuilder) -> BackupView {
         for new_file in bb.iter_new_files() {
-            let metadata = DataBlockMetadata {
+            let data_block = DataBlock {
+                hash: new_file.hash,
                 mtime: new_file.mtime,
                 size: new_file.size,
             };
-            let prev = self.data_blocks.insert(new_file.hash, metadata);
+            let prev = self.data_blocks.insert(data_block);
             assert!(prev.is_none());
         }
         self.backups.insert(name.to_owned(), bb.into_inner());
         self.get_backup(name).unwrap()
+    }
+}
+
+#[derive(Serialize, Deserialize, Deref, DerefMut)]
+pub struct DataBlocks(
+    #[serde(deserialize_with = "DataBlocks::deserialize")] ClonedFieldMap<DataBlock, Hash>,
+);
+
+impl DataBlocks {
+    fn new() -> Self {
+        Self(ClonedFieldMap::new(DataBlock::hash))
+    }
+
+    fn deserialize<'de, D>(deserializer: D) -> Result<ClonedFieldMap<DataBlock, Hash>, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        ClonedFieldMap::deserialize(DataBlock::hash, deserializer)
     }
 }

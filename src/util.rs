@@ -1,13 +1,23 @@
-use eyre::{Context, Result};
-use serde::de::Visitor;
-use serde::{Deserialize, Serialize};
-use std::fmt::{Debug, Display};
-use std::io;
-use std::time::{Duration, SystemTime};
+use eyre::{ensure, Context, Result};
+use serde::{de::Visitor, Deserialize, Serialize};
 use std::{
     env::current_dir,
+    fmt::{Debug, Display},
+    fs::read_dir,
+    io,
     path::{Path, PathBuf},
+    time::{Duration, SystemTime},
 };
+
+pub fn path_or_cwd(path: Option<PathBuf>) -> PathBuf {
+    path.unwrap_or_else(|| current_dir().expect("current_dir"))
+}
+
+pub fn ensure_dir_exists_and_is_empty(path: &Path) -> Result<()> {
+    let mut read_dir = read_dir(path).context_2("read_dir", path)?;
+    ensure!(read_dir.next().is_none(), "{} is not empty", path.display());
+    Ok(())
+}
 
 #[derive(Serialize, Deserialize, Copy, Clone, PartialEq, Eq, Debug)]
 pub struct MTime {
@@ -46,10 +56,6 @@ pub trait ContextExt<T, E>: Context<T, E> + Sized {
 }
 
 impl<C: Context<T, E>, T, E> ContextExt<T, E> for C {}
-
-pub fn path_or_cwd(path: Option<PathBuf>) -> PathBuf {
-    path.unwrap_or_else(|| current_dir().expect("current_dir"))
-}
 
 #[derive(PartialEq, Eq, Hash, Clone, Copy)]
 pub struct Hash(blake3::Hash);

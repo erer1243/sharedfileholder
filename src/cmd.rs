@@ -1,6 +1,7 @@
-pub mod backup;
-pub mod init;
-pub mod list;
+mod backup;
+mod init;
+mod list;
+mod mount;
 
 use clap::{Args, Parser, Subcommand};
 use eyre::Result;
@@ -26,6 +27,7 @@ enum SubCmd {
     Init(init::CliArgs),
     Backup(backup::CliArgs),
     List(list::CliArgs),
+    Mount(mount::CliArgs),
 }
 
 pub fn cli_main() -> ! {
@@ -54,5 +56,6 @@ fn run_cli(cli: Cli) -> Result<()> {
         SubCmd::Init(args) => init::run(global_args, args),
         SubCmd::Backup(args) => backup::run(global_args, args),
         SubCmd::List(args) => list::run(global_args, args),
+        SubCmd::Mount(args) => mount::run(global_args, args),
     }
 }

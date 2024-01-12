@@ -22,7 +22,7 @@ fn list(provided_vault_dir: Option<PathBuf>) -> Result<()> {
     Ok(())
 }
 
-fn print_bkup_info(db: &Database, bkup: &BackupView) {
+fn print_bkup_info(_db: &Database, bkup: &BackupView) {
     println!("* {}", bkup.name());
     let n_items = bkup.files().len() + bkup.directories().len() + bkup.symlinks().len();
     println!("  {n_items} items");

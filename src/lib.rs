@@ -3,7 +3,6 @@
 mod backup;
 mod cmd;
 mod database;
-mod fieldmap;
 mod storage;
 mod util;
 
