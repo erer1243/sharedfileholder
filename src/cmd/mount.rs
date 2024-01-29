@@ -9,9 +9,8 @@ use std::{
 };
 
 use crate::{
-    database::Database,
-    storage,
     util::{ensure_dir_exists_and_is_empty, path_or_cwd, ContextExt},
+    vault::{database::Database, storage::Storage},
 };
 
 use super::GlobalArgs;
@@ -32,7 +31,8 @@ pub fn run(gargs: GlobalArgs, args: CliArgs) -> Result<()> {
 
 fn mount(vault_dir: &Path, mount_point: &Path, backup: &str) -> Result<()> {
     ensure_dir_exists_and_is_empty(mount_point)?;
-    let db = Database::load_from_vault(vault_dir)?;
+    let storage = Storage::new(vault_dir);
+    let db = Database::load(vault_dir)?;
     let bkup = db
         .get_backup(backup)
         .with_context(|| format!("backup {backup:?} does not exist"))?;
@@ -52,7 +52,7 @@ fn mount(vault_dir: &Path, mount_point: &Path, backup: &str) -> Result<()> {
             .absolutize_from(&cwd)
             .context_2("absolutize", &file_dest)?;
 
-        let file_source = storage::path_of_hash(vault_dir, file.hash());
+        let file_source = storage.path_of(file.hash());
         let file_source = file_source
             .absolutize_from(&cwd)
             .context_2("absolutize", &file_source)?;

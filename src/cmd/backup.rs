@@ -7,10 +7,12 @@ use std::{
 use walkdir::{DirEntry as WalkDirEntry, DirEntryExt, WalkDir};
 
 use crate::{
-    backup::{BackupBuilder, BackupView, NewBackupFile},
-    database::Database,
-    storage,
     util::{path_or_cwd, ContextExt, Hash, MTime},
+    vault::{
+        backup::{BackupBuilder, BackupView, NewBackupFile},
+        database::Database,
+        storage::Storage,
+    },
 };
 
 use super::GlobalArgs;
@@ -33,7 +35,8 @@ pub fn run(gargs: GlobalArgs, args: CliArgs) -> Result<()> {
 
 fn backup(provided_vault_dir: Option<PathBuf>, bkup_name: &str, bkup_root: &Path) -> Result<()> {
     let vault_dir = path_or_cwd(provided_vault_dir);
-    let mut db = Database::load_from_vault(&vault_dir).context_2("loading vault", &vault_dir)?;
+    let storage = Storage::new(&vault_dir);
+    let mut db = Database::load(&vault_dir).context_2("loading vault", &vault_dir)?;
     let old_bkup = db.get_backup(bkup_name);
     let new_bkup = BackupBuilder::new();
     let mut state = BackupState {
@@ -49,23 +52,24 @@ fn backup(provided_vault_dir: Option<PathBuf>, bkup_name: &str, bkup_root: &Path
         let dir_entry = dir_entry_res
             .context("reading DirEntry")
             .map(DirEntry::new)??;
-        backup_single_dir_entry(&mut state, dir_entry)?;
+        handle_dir_entry(&mut state, dir_entry)?;
     }
 
     // Ingest new fields into storage
     for NewBackupFile { source, hash, .. } in state.new_bkup.iter_new_files() {
-        storage::store_file(&vault_dir, source, *hash).context_2("store_file", source)?;
+        storage
+            .insert_file(source, *hash)
+            .context_2("storage::insert_file", source)?;
     }
 
     // Insert new backup into database
     db.insert_backup_builder(bkup_name, state.new_bkup);
-    db.write_to_vault(&vault_dir)?;
+    db.write(&vault_dir)?;
 
     Ok(())
 }
 
-/// Handle a single
-fn backup_single_dir_entry(state: &mut BackupState, dir_entry: DirEntry) -> Result<()> {
+fn handle_dir_entry(state: &mut BackupState, dir_entry: DirEntry) -> Result<()> {
     let BackupState {
         bkup_root,
         new_bkup,
@@ -74,7 +78,7 @@ fn backup_single_dir_entry(state: &mut BackupState, dir_entry: DirEntry) -> Resu
     } = state;
     let bkup_path = dir_entry.path_relative_to(bkup_root);
 
-    eprintln!("{}\t{}", dir_entry.as_ref(), bkup_path.display());
+    eprintln!("{: <8}\t{}", dir_entry.as_ref(), bkup_path.display());
 
     match dir_entry {
         DirEntry::File {
@@ -91,16 +95,15 @@ fn backup_single_dir_entry(state: &mut BackupState, dir_entry: DirEntry) -> Resu
                 // TODO: check size
                 Some(old_file) if mtime <= old_file.mtime() => {
                     let hash = old_file.hash();
-                    new_bkup.insert_unchanged_file(bkup_path, hash, ino);
+                    new_bkup.insert_unchanged_file(bkup_path, hash, ino, mtime);
                 }
 
                 // Same inode but mtime changed, we need to hash the file to check
                 Some(old_file) => {
                     let hash = Hash::file(&path)?;
-                    eprintln!("\t{hash}");
-
+                    eprintln!("\t\t{hash}");
                     if old_file.hash() == hash {
-                        new_bkup.insert_unchanged_file(bkup_path, hash, ino);
+                        new_bkup.insert_unchanged_file(bkup_path, hash, ino, mtime);
                     } else {
                         new_bkup.insert_new_file(path, bkup_path, hash, ino, mtime, size);
                     }
@@ -109,8 +112,7 @@ fn backup_single_dir_entry(state: &mut BackupState, dir_entry: DirEntry) -> Resu
                 // There was no old version of the file
                 None => {
                     let hash = Hash::file(&path)?;
-                    eprintln!("\t{hash}");
-
+                    eprintln!("\t\t{hash}");
                     new_bkup.insert_new_file(path, bkup_path, hash, ino, mtime, size);
                 }
             }

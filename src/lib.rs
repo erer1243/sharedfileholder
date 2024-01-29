@@ -1,10 +1,8 @@
 #![allow(dead_code)]
 
-mod backup;
 mod cmd;
-mod database;
-mod storage;
 mod util;
+mod vault;
 
 pub fn main() -> ! {
     cmd::cli_main()

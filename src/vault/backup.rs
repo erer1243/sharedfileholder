@@ -7,7 +7,7 @@ use std::{
     rc::Rc,
 };
 
-use crate::database::{DataBlock, DataBlocks};
+use super::database::{DataBlock, DataBlocks};
 use crate::util::{Hash, MTime};
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -27,11 +27,13 @@ impl Backup {
     }
 }
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, PartialEq, Eq, Clone)]
 pub struct BackupFile {
     pub ino: u64,
+    // Shared with NewBackupFile
     pub path: Rc<Path>,
     pub hash: Hash,
+    pub mtime: MTime,
 }
 
 impl BackupFile {
@@ -74,7 +76,7 @@ pub struct NewBackupFile {
     pub ino: u64,
     pub hash: Hash,
     pub mtime: MTime,
-    pub size: u64,
+    pub apparent_size: u64,
 }
 
 impl BackupBuilder {
@@ -100,13 +102,14 @@ impl BackupBuilder {
         hash: Hash,
         ino: u64,
         mtime: MTime,
-        size: u64,
+        apparent_size: u64,
     ) {
         let bkup_path: Rc<Path> = bkup_path.into();
         self.inner.files.insert(BackupFile {
             ino,
             path: bkup_path.clone(),
             hash,
+            mtime,
         });
         self.new_files.push(NewBackupFile {
             source,
@@ -114,15 +117,16 @@ impl BackupBuilder {
             ino,
             hash,
             mtime,
-            size,
+            apparent_size,
         });
     }
 
-    pub fn insert_unchanged_file(&mut self, path: PathBuf, hash: Hash, ino: u64) {
+    pub fn insert_unchanged_file(&mut self, path: PathBuf, hash: Hash, ino: u64, mtime: MTime) {
         self.inner.files.insert(BackupFile {
             ino,
             path: Rc::from(path),
             hash,
+            mtime,
         });
     }
 
@@ -213,6 +217,10 @@ impl<'a> BackupFileView<'a> {
     }
 
     pub fn mtime(&self) -> MTime {
-        self.data_block.mtime
+        self.backup_file.mtime
+    }
+
+    pub fn apparent_size(&self) -> u64 {
+        self.data_block.apparent_size
     }
 }

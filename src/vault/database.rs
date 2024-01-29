@@ -1,7 +1,6 @@
-use crate::{
-    backup::{Backup, BackupBuilder, BackupView},
-    util::{ContextExt, Hash, MTime},
-};
+use super::backup::{Backup, BackupBuilder, BackupView};
+use crate::util::{ContextExt, Hash};
+
 use derive_more::{Deref, DerefMut};
 use eyre::Result;
 use fieldmap::ClonedFieldMap;
@@ -20,11 +19,10 @@ pub struct Database {
 }
 
 /// POD struct with information about a data block in storage.
-#[derive(Serialize, Deserialize, Copy, Clone, Debug)]
+#[derive(Serialize, Deserialize, Copy, Clone, Debug, PartialEq, Eq)]
 pub struct DataBlock {
     pub hash: Hash,
-    pub mtime: MTime,
-    pub size: u64,
+    pub apparent_size: u64,
 }
 
 impl DataBlock {
@@ -43,18 +41,16 @@ impl Database {
         }
     }
 
-    pub fn load_from_vault<P: AsRef<Path>>(path: P) -> Result<Self> {
+    pub fn load<P: AsRef<Path>>(path: P) -> Result<Self> {
         let path = path.as_ref().join(DATABASE_NAME);
         let f = BufReader::new(File::open(&path).context_2("reading db file", &path)?);
-        // let db = ron::de::from_reader(f)?;
         let db = serde_json::from_reader(f)?;
         Ok(db)
     }
 
-    pub fn write_to_vault<P: AsRef<Path>>(&self, path: P) -> Result<()> {
+    pub fn write<P: AsRef<Path>>(&self, path: P) -> Result<()> {
         let path = path.as_ref().join(DATABASE_NAME);
         let f = BufWriter::new(File::create(&path).context_2("writing db file", &path)?);
-        // ron::ser::to_writer_pretty(f, self, ron::ser::PrettyConfig::default())?;
         serde_json::to_writer_pretty(f, self)?;
         Ok(())
     }
@@ -80,11 +76,16 @@ impl Database {
         for new_file in bb.iter_new_files() {
             let data_block = DataBlock {
                 hash: new_file.hash,
-                mtime: new_file.mtime,
-                size: new_file.size,
+                apparent_size: new_file.apparent_size,
             };
             let prev = self.data_blocks.insert(data_block);
-            assert!(prev.is_none());
+
+            if let Some(prev) = prev {
+                assert_eq!(
+                    new_file.apparent_size, prev.apparent_size,
+                    "two different sized data blocks with the same hash"
+                );
+            }
         }
         self.backups.insert(name.to_owned(), bb.into_inner());
         self.get_backup(name).unwrap()
