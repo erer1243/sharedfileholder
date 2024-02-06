@@ -1,0 +1,4 @@
+[ ] Remove dependency on eyre / using general purpose error types everywhere
+[ ] Add statistics collection and printing to the backup command
+      Eg timing, bytes copied vs already present, perhaps a diff
+[ ] Create a diff command that will calculate what will be backed up
