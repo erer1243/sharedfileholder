@@ -12,6 +12,8 @@ use std::{
     path::Path,
 };
 
+const DATABASE_NAME: &str = "database.json";
+
 #[derive(Serialize, Deserialize)]
 pub struct Database {
     backups: BTreeMap<String, Backup>,
@@ -25,14 +27,6 @@ pub struct DataBlock {
     pub apparent_size: u64,
 }
 
-impl DataBlock {
-    fn hash(&self) -> &Hash {
-        &self.hash
-    }
-}
-
-const DATABASE_NAME: &str = "database.json";
-
 impl Database {
     pub fn new() -> Self {
         Self {
@@ -41,14 +35,14 @@ impl Database {
         }
     }
 
-    pub fn load<P: AsRef<Path>>(path: P) -> Result<Self> {
+    pub fn load(path: impl AsRef<Path>) -> Result<Self> {
         let path = path.as_ref().join(DATABASE_NAME);
         let f = BufReader::new(File::open(&path).context_2("reading db file", &path)?);
         let db = serde_json::from_reader(f)?;
         Ok(db)
     }
 
-    pub fn write<P: AsRef<Path>>(&self, path: P) -> Result<()> {
+    pub fn write<P: AsRef<Path>>(&self, path: impl AsRef<Path>) -> Result<()> {
         let path = path.as_ref().join(DATABASE_NAME);
         let f = BufWriter::new(File::create(&path).context_2("writing db file", &path)?);
         serde_json::to_writer_pretty(f, self)?;
@@ -99,13 +93,13 @@ pub struct DataBlocks(
 
 impl DataBlocks {
     fn new() -> Self {
-        Self(ClonedFieldMap::new(DataBlock::hash))
+        Self(ClonedFieldMap::new(|datablock| &datablock.hash))
     }
 
     fn deserialize<'de, D>(deserializer: D) -> Result<ClonedFieldMap<DataBlock, Hash>, D::Error>
     where
         D: Deserializer<'de>,
     {
-        ClonedFieldMap::deserialize(DataBlock::hash, deserializer)
+        ClonedFieldMap::deserialize(|datablock| &datablock.hash, deserializer)
     }
 }

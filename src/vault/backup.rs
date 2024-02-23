@@ -139,6 +139,9 @@ impl BackupBuilder {
     }
 }
 
+/// A read-only view of a backup in the database. It is used to interface with otherwise
+/// private fields inside `Backup`s and `Database`s. It is constructed with information
+/// from both, so the type is kind of co-owned between those two modules.
 pub struct BackupView<'a> {
     name: &'a str,
     backup: &'a Backup,

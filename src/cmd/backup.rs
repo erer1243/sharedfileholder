@@ -7,6 +7,7 @@ use std::{
 use walkdir::{DirEntry as WalkDirEntry, DirEntryExt, WalkDir};
 
 use crate::{
+    cmd::GlobalArgs,
     util::{path_or_cwd, ContextExt, Hash, MTime},
     vault::{
         backup::{BackupBuilder, BackupView, NewBackupFile},
@@ -14,8 +15,6 @@ use crate::{
         storage::Storage,
     },
 };
-
-use super::GlobalArgs;
 
 #[derive(Args)]
 pub struct CliArgs {
@@ -55,7 +54,7 @@ fn backup(provided_vault_dir: Option<PathBuf>, bkup_name: &str, bkup_root: &Path
         handle_dir_entry(&mut state, dir_entry)?;
     }
 
-    // Ingest new fields into storage
+    // Ingest new files into storage
     for NewBackupFile { source, hash, .. } in state.new_bkup.iter_new_files() {
         storage
             .insert_file(source, *hash)

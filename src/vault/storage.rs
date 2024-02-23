@@ -7,20 +7,23 @@ use walkdir::WalkDir;
 
 use crate::util::{ContextExt, Hash};
 
-pub struct Storage<'a> {
-    vault_dir: &'a Path,
+const DATA_DIR_NAME: &str = "data";
+
+pub struct Storage {
+    data_dir: PathBuf,
 }
 
-impl<'a> Storage<'a> {
-    pub fn new(vault_dir: &'a Path) -> Self {
-        Self { vault_dir }
+impl Storage {
+    pub fn new(vault_dir: impl AsRef<Path>) -> Self {
+        Self {
+            data_dir: vault_dir.as_ref().join(DATA_DIR_NAME),
+        }
     }
 
     pub fn path_of(&self, hash: Hash) -> PathBuf {
         let hex = hash.inner().to_hex();
         let first_hex_byte = hex.split_at(2).0;
-        let mut path = self.vault_dir.to_owned();
-        path.push("data");
+        let mut path = self.data_dir.clone();
         path.push(first_hex_byte);
         path.push(hex.as_str());
         path
@@ -50,7 +53,7 @@ impl<'a> Storage<'a> {
     }
 
     pub fn iter_files(&self) -> impl Iterator<Item = Result<PathBuf>> {
-        WalkDir::new(&self.vault_dir)
+        WalkDir::new(&self.data_dir)
             .into_iter()
             .skip(1)
             .filter_map(|res| match res {
@@ -63,11 +66,3 @@ impl<'a> Storage<'a> {
             })
     }
 }
-
-// pub fn store_file(_: &Path, _: &Path, _: Hash) -> Result<()> {
-//     unimplemented!()
-// }
-
-// pub fn path_of_hash(_: &Path, _: Hash) -> PathBuf {
-//     unimplemented!()
-// }
