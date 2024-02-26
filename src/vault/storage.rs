@@ -29,7 +29,7 @@ impl Storage {
         path
     }
 
-    pub fn insert_file(&self, path: &Path, hash: Hash) -> Result<()> {
+    pub fn insert_file(&self, source: &Path, hash: Hash) -> Result<()> {
         let dest = self.path_of(hash);
 
         if dest.try_exists().context_2("stat", &dest)? {
@@ -41,9 +41,9 @@ impl Storage {
             fs::create_dir(dest.parent().unwrap()).context_2("mkdir", dir)?;
         }
 
-        let path_disp = path.display();
+        let source_disp = source.display();
         let dest_disp = dest.display();
-        fs::copy(path, &dest).with_context(|| format!("copying {path_disp} to {dest_disp}"))?;
+        fs::copy(source, &dest).with_context(|| format!("copying {source_disp} to {dest_disp}"))?;
         Ok(())
     }
 

@@ -61,7 +61,7 @@ impl<C: Context<T, E>, T, E> ContextExt<T, E> for C {}
 pub struct Hash(blake3::Hash);
 
 impl Hash {
-    pub fn file<P: AsRef<Path>>(path: P) -> io::Result<Hash> {
+    pub fn of_file<P: AsRef<Path>>(path: P) -> io::Result<Hash> {
         let hash = blake3::Hasher::new().update_mmap(path)?.finalize();
         Ok(Hash(hash))
     }
@@ -118,5 +118,13 @@ impl Debug for Hash {
 impl Display for Hash {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{self:?}")
+    }
+}
+
+pub(crate) struct PathBufDisplay(pub(crate) PathBuf);
+
+impl Display for PathBufDisplay {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.0.display())
     }
 }

@@ -1,4 +1,4 @@
-use super::backup::{Backup, BackupBuilder, BackupView};
+use super::backup::{Backup, BackupView};
 use crate::util::{ContextExt, Hash};
 
 use derive_more::{Deref, DerefMut};
@@ -20,9 +20,9 @@ pub struct Database {
     data_blocks: DataBlocks,
 }
 
-/// POD struct with information about a data block in storage.
+/// POD struct with information about a file in storage.
 #[derive(Serialize, Deserialize, Copy, Clone, Debug, PartialEq, Eq)]
-pub struct DataBlock {
+pub struct FileMetadata {
     pub hash: Hash,
     pub apparent_size: u64,
 }
@@ -42,7 +42,7 @@ impl Database {
         Ok(db)
     }
 
-    pub fn write<P: AsRef<Path>>(&self, path: impl AsRef<Path>) -> Result<()> {
+    pub fn write(&self, path: impl AsRef<Path>) -> Result<()> {
         let path = path.as_ref().join(DATABASE_NAME);
         let f = BufWriter::new(File::create(&path).context_2("writing db file", &path)?);
         serde_json::to_writer_pretty(f, self)?;
@@ -61,34 +61,34 @@ impl Database {
         Some(BackupView::new(name, backup, data_blocks))
     }
 
-    pub fn get_data_block(&self, hash: Hash) -> Option<DataBlock> {
+    pub fn get_data_block(&self, hash: Hash) -> Option<FileMetadata> {
         self.data_blocks.get(&hash)?;
         todo!()
     }
 
-    pub fn insert_backup_builder(&mut self, name: &str, bb: BackupBuilder) -> BackupView {
-        for new_file in bb.iter_new_files() {
-            let data_block = DataBlock {
-                hash: new_file.hash,
-                apparent_size: new_file.apparent_size,
-            };
-            let prev = self.data_blocks.insert(data_block);
+    // pub fn insert_backup_builder(&mut self, name: &str, bb: BackupBuilder) -> BackupView {
+    //     for new_file in bb.iter_new_files() {
+    //         let data_block = FileMetadata {
+    //             hash: new_file.hash,
+    //             apparent_size: new_file.apparent_size,
+    //         };
+    //         let prev = self.data_blocks.insert(data_block);
 
-            if let Some(prev) = prev {
-                assert_eq!(
-                    new_file.apparent_size, prev.apparent_size,
-                    "two different sized data blocks with the same hash"
-                );
-            }
-        }
-        self.backups.insert(name.to_owned(), bb.into_inner());
-        self.get_backup(name).unwrap()
-    }
+    //         if let Some(prev) = prev {
+    //             assert_eq!(
+    //                 new_file.apparent_size, prev.apparent_size,
+    //                 "two different sized data blocks with the same hash"
+    //             );
+    //         }
+    //     }
+    //     self.backups.insert(name.to_owned(), bb.into_inner());
+    //     self.get_backup(name).unwrap()
+    // }
 }
 
 #[derive(Serialize, Deserialize, Deref, DerefMut)]
 pub struct DataBlocks(
-    #[serde(deserialize_with = "DataBlocks::deserialize")] ClonedFieldMap<DataBlock, Hash>,
+    #[serde(deserialize_with = "DataBlocks::deserialize")] ClonedFieldMap<FileMetadata, Hash>,
 );
 
 impl DataBlocks {
@@ -96,7 +96,7 @@ impl DataBlocks {
         Self(ClonedFieldMap::new(|datablock| &datablock.hash))
     }
 
-    fn deserialize<'de, D>(deserializer: D) -> Result<ClonedFieldMap<DataBlock, Hash>, D::Error>
+    fn deserialize<'de, D>(deserializer: D) -> Result<ClonedFieldMap<FileMetadata, Hash>, D::Error>
     where
         D: Deserializer<'de>,
     {

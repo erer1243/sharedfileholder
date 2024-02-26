@@ -17,6 +17,7 @@ fieldmap = { path = "../fieldmap", features = ["serde"] }
 derive_more = "0.99.17"
 pathdiff = "0.2.1"
 path-absolutize = "3.1.1"
+thiserror = "1.0.57"
 
 [dev-dependencies]
 mktemp = "0.5.1"

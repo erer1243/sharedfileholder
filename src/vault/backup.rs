@@ -7,7 +7,7 @@ use std::{
     rc::Rc,
 };
 
-use super::database::{DataBlock, DataBlocks};
+use super::database::{DataBlocks, FileMetadata};
 use crate::util::{Hash, MTime};
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -18,22 +18,40 @@ pub struct Backup {
 }
 
 impl Backup {
-    fn new() -> Self {
+    pub fn new() -> Self {
         Self {
             files: BackupFiles::new(),
             directories: BTreeSet::new(),
             symlinks: BTreeMap::new(),
         }
     }
+
+    pub fn insert_directory(&mut self, path: PathBuf) {
+        self.directories.insert(path);
+    }
+
+    pub fn insert_symlink(&mut self, target: PathBuf, link_name: PathBuf) {
+        self.symlinks.insert(link_name, target);
+    }
+
+    pub fn insert_file(&mut self, path: PathBuf, ino: u64, mtime: MTime, hash: Hash, bytes: u64) {
+        self.files.insert(BackupFile {
+            path,
+            ino,
+            mtime,
+            hash,
+            bytes,
+        });
+    }
 }
 
 #[derive(Serialize, Deserialize, Debug, PartialEq, Eq, Clone)]
 pub struct BackupFile {
     pub ino: u64,
-    // Shared with NewBackupFile
-    pub path: Rc<Path>,
+    pub path: PathBuf,
     pub hash: Hash,
     pub mtime: MTime,
+    pub bytes: u64,
 }
 
 impl BackupFile {
@@ -57,85 +75,6 @@ impl BackupFiles {
         D: Deserializer<'de>,
     {
         ClonedFieldMap::deserialize(BackupFile::ino, deserializer)
-    }
-}
-
-#[derive(Debug)]
-pub struct BackupBuilder {
-    inner: Backup,
-    new_files: Vec<NewBackupFile>,
-}
-
-/// Details about a file inserted into a BackupBuilder via [`BackupBuilder::insert_new_file`].
-/// Obtained via [`BackupBuilder::iter_new_files`].
-#[derive(Debug)]
-pub struct NewBackupFile {
-    pub source: PathBuf,
-    // Shared with BackupFile
-    pub bkup_path: Rc<Path>,
-    pub ino: u64,
-    pub hash: Hash,
-    pub mtime: MTime,
-    pub apparent_size: u64,
-}
-
-impl BackupBuilder {
-    pub fn new() -> Self {
-        Self {
-            inner: Backup::new(),
-            new_files: Vec::new(),
-        }
-    }
-
-    pub fn insert_directory(&mut self, path: PathBuf) {
-        self.inner.directories.insert(path);
-    }
-
-    pub fn insert_symlink(&mut self, path: PathBuf, target: PathBuf) {
-        self.inner.symlinks.insert(path, target);
-    }
-
-    pub fn insert_new_file(
-        &mut self,
-        source: PathBuf,
-        bkup_path: PathBuf,
-        hash: Hash,
-        ino: u64,
-        mtime: MTime,
-        apparent_size: u64,
-    ) {
-        let bkup_path: Rc<Path> = bkup_path.into();
-        self.inner.files.insert(BackupFile {
-            ino,
-            path: bkup_path.clone(),
-            hash,
-            mtime,
-        });
-        self.new_files.push(NewBackupFile {
-            source,
-            bkup_path,
-            ino,
-            hash,
-            mtime,
-            apparent_size,
-        });
-    }
-
-    pub fn insert_unchanged_file(&mut self, path: PathBuf, hash: Hash, ino: u64, mtime: MTime) {
-        self.inner.files.insert(BackupFile {
-            ino,
-            path: Rc::from(path),
-            hash,
-            mtime,
-        });
-    }
-
-    pub fn iter_new_files(&self) -> impl Iterator<Item = &NewBackupFile> {
-        self.new_files.iter()
-    }
-
-    pub fn into_inner(self) -> Backup {
-        self.inner
     }
 }
 
@@ -173,7 +112,7 @@ impl<'a> BackupView<'a> {
         &self.backup.symlinks
     }
 
-    fn data_block_of_file(&self, backup_file: &BackupFile) -> &DataBlock {
+    fn data_block_of_file(&self, backup_file: &BackupFile) -> &FileMetadata {
         let ino = backup_file.ino;
         self.data_blocks
             .get(&backup_file.hash)
@@ -203,7 +142,7 @@ impl<'a> BackupView<'a> {
 
 pub struct BackupFileView<'a> {
     backup_file: &'a BackupFile,
-    data_block: &'a DataBlock,
+    data_block: &'a FileMetadata,
 }
 
 impl<'a> BackupFileView<'a> {
