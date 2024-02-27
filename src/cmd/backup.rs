@@ -12,7 +12,7 @@ use crate::{
     cmd::GlobalArgs,
     util::{ContextExt, Hash, MTime},
     vault::{
-        backup::{Backup, BackupView},
+        backup::{Backup, BackupFile, BackupView},
         Vault,
     },
 };
@@ -29,25 +29,29 @@ pub fn run(gargs: GlobalArgs, args: CliArgs) -> Result<()> {
 
 fn backup(provided_vault_dir: Option<PathBuf>, bkup_name: &str, bkup_root: &Path) -> Result<()> {
     let mut vault = Vault::open_cwd(provided_vault_dir)?;
-
     match vault.database.get_backup(bkup_name) {
+        // Updating an existing backup
         Some(old_bkup) => {
             let (backup, new_files) = update_existing_backup(bkup_root, old_bkup)?;
+            vault.storage.insert_iter(
+                new_files
+                    .into_iter()
+                    .map(|newfile| (newfile.path, newfile.hash)),
+            )?;
+            vault.database.insert_backup(bkup_name, backup);
         }
-        None => (),
+
+        // Creating a new backup
+        None => {
+            let backup = new_backup(bkup_root)?;
+            vault.storage.insert_iter(
+                backup
+                    .iter_files()
+                    .map(|bkup_file| (&bkup_file.path, bkup_file.hash)),
+            )?;
+            vault.database.insert_backup(bkup_name, backup);
+        }
     }
-
-    // Ingest new files into storage
-    // for NewBackupFile { source, hash, .. } in state.new_bkup.iter_new_files() {
-    //     storage
-    //         .insert_file(source, *hash)
-    //         .context_2("storage::insert_file", source)?;
-    // }
-
-    // // Insert new backup into database
-    // db.insert_backup_builder(bkup_name, state.new_bkup);
-    // db.write(&vault_dir)?;
-
     vault.close()?;
     Ok(())
 }
@@ -114,7 +118,12 @@ where
         if metadata.is_file() {
             let mtime = MTime::from(metadata.modified().path_context(&path)?);
             let hash = file_hash_hook(&path, ino, mtime).path_context(&path)?;
-            backup.insert_file(path_from_root, ino, mtime, hash)
+            backup.insert_file(BackupFile {
+                path: path_from_root,
+                ino,
+                hash,
+                mtime,
+            })
         } else if metadata.is_dir() {
             backup.insert_directory(path_from_root);
         } else if metadata.is_symlink() {

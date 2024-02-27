@@ -9,6 +9,7 @@ use crate::util::{ContextExt, Hash};
 
 const DATA_DIR_NAME: &str = "data";
 
+#[derive(Debug)]
 pub struct Storage {
     data_dir: PathBuf,
 }

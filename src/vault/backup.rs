@@ -33,13 +33,12 @@ impl Backup {
         self.symlinks.insert(link_name, target);
     }
 
-    pub fn insert_file(&mut self, path: PathBuf, ino: u64, mtime: MTime, hash: Hash) {
-        self.files.insert(BackupFile {
-            path,
-            ino,
-            mtime,
-            hash,
-        });
+    pub fn insert_file(&mut self, backup_file: BackupFile) {
+        self.files.insert(backup_file);
+    }
+
+    pub fn iter_files(&self) -> impl Iterator<Item = &BackupFile> {
+        self.files.data().iter()
     }
 }
 

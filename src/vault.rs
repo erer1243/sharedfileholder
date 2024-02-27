@@ -8,6 +8,7 @@ use std::path::{Path, PathBuf};
 use database::Database;
 use storage::Storage;
 
+#[derive(Debug)]
 pub struct Vault {
     pub database: Database,
     pub storage: Storage,
@@ -39,6 +40,7 @@ impl Vault {
 
 impl Drop for Vault {
     fn drop(&mut self) {
+        println!("{self:#?}");
         if !self.closed {
             panic!("Vault was dropped without calling close()");
         }

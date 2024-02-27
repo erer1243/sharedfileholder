@@ -14,7 +14,7 @@ use std::{
 
 const DATABASE_NAME: &str = "database.json";
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Debug)]
 pub struct Database {
     #[serde(skip)]
     path: PathBuf,
@@ -76,7 +76,7 @@ impl Database {
     }
 }
 
-#[derive(Serialize, Deserialize, Deref, DerefMut)]
+#[derive(Serialize, Deserialize, Deref, DerefMut, Debug)]
 pub struct FilesMetadata(
     #[serde(deserialize_with = "FilesMetadata::deserialize")] ClonedFieldMap<FileMetadata, Hash>,
 );
