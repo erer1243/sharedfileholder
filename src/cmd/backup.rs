@@ -15,6 +15,7 @@ use crate::{
         backup::{Backup, BackupView},
         database::Database,
         storage::Storage,
+        Vault,
     },
 };
 
@@ -72,9 +73,8 @@ fn backup(provided_vault_dir: Option<PathBuf>, bkup_name: &str, bkup_root: &Path
 
 fn new_backup(root: &Path) -> Result<Backup> {
     let mut backup = Backup::new();
-    let handle_dir_entry = |entry: DirEntry| -> Result<()> {
+    scan_dir(root, |entry| {
         use DirEntryKind::*;
-
         match entry.kind {
             File { ino, mtime, size } => {
                 let hash = Hash::of_file(&entry.path).context(PathBufDisplay(entry.path))?;
@@ -82,28 +82,120 @@ fn new_backup(root: &Path) -> Result<Backup> {
             }
             Directory => backup.insert_directory(entry.path_from_root),
             Symlink { target } => backup.insert_symlink(target, entry.path_from_root),
+            Special => bail!("{}: special file", entry.path.display()),
             // TODO perhaps add an option to ignore special files?
             // Check what other tools like Git, Unison, and Rsync do
-            Special => bail!("{}: special file", entry.path.display()),
         }
         Ok(())
-    };
-    scan_dir(root, handle_dir_entry)?;
+    })?;
     Ok(backup)
 }
 
-// fn update_existing_backup(vault: &mut Vault, root: &Path) -> Result<()> {}
+// fn update_existing_backup(root: &Path, old: BackupView) -> Result<()> {
+//     let mut backup = Backup::new();
+//     Ok(())
+// }
 
 fn scan_dir(root: &Path, mut handle_dir_entry: impl FnMut(DirEntry) -> Result<()>) -> Result<()> {
-    // Skip the first entry, the entry for `root`
-    let walkdir = WalkDir::new(root).into_iter().skip(1);
-    for waldir_entry_res in walkdir {
+    for waldir_entry_res in WalkDir::new(root).min_depth(1) {
         let walkdir_entry = waldir_entry_res?;
         let dir_entry = DirEntry::new(root, walkdir_entry)?;
         handle_dir_entry(dir_entry)?;
     }
-
     Ok(())
+}
+
+fn scan_dir_into_backup<F>(root: &Path, is_file_new: F) -> Result<(Backup, Vec<NewFile>)>
+where
+    F:,
+{
+    let mut backup = Backup::new();
+    let mut new_files = Vec::new();
+
+    for dir_entry in WalkDir::new(root).min_depth(1) {
+        let dir_entry = dir_entry?;
+
+        let ino = dir_entry.ino();
+        let path = dir_entry.into_path();
+        let metadata = symlink_metadata(&*path)?;
+        let path_from_root = path.strip_prefix(root).unwrap().to_path_buf();
+
+        if metadata.is_file() {
+            let mtime = metadata.modified().path_context(&path)?;
+            let mtime = MTime::from(mtime);
+            let size = metadata.len();
+            // backup.insert_file(path_from_root, , , , )
+        } else if metadata.is_dir() {
+            DirEntryKind::Directory
+        } else if metadata.is_symlink() {
+            let target = read_link(&*path)?;
+            DirEntryKind::Symlink { target }
+        } else {
+            DirEntryKind::Special
+        };
+    }
+
+    Ok((backup, new_files))
+}
+
+struct NewFile {
+    path_from_root: PathBuf,
+    hash: Hash,
+    ino: u64,
+    mtime: MTime,
+    bytes: u64,
+}
+
+struct DirEntry {
+    path: PathBuf,
+    path_from_root: PathBuf,
+    kind: DirEntryKind,
+}
+
+#[derive(strum::AsRefStr)]
+enum DirEntryKind {
+    File { ino: u64, mtime: MTime, size: u64 },
+    Directory,
+    Symlink { target: PathBuf },
+    Special,
+}
+
+impl DirEntry {
+    fn new(root: &Path, walk_dir_entry: walkdir::DirEntry) -> Result<Self, DirEntryError> {
+        let ino = walk_dir_entry.ino();
+        let path = walk_dir_entry.into_path();
+        let path_from_root = path.strip_prefix(root).unwrap().to_path_buf();
+        let ioerr = |err: io::Error| DirEntryError {
+            inner: err,
+            path: (*path).to_owned(),
+        };
+        let metadata = symlink_metadata(&*path).map_err(ioerr)?;
+        let kind = if metadata.is_file() {
+            let mtime = MTime::from(metadata.modified().map_err(ioerr)?);
+            let size = metadata.len();
+            DirEntryKind::File { ino, mtime, size }
+        } else if metadata.is_dir() {
+            DirEntryKind::Directory
+        } else if metadata.is_symlink() {
+            let target = read_link(&*path).map_err(ioerr)?;
+            DirEntryKind::Symlink { target }
+        } else {
+            DirEntryKind::Special
+        };
+
+        Ok(DirEntry {
+            path,
+            path_from_root,
+            kind,
+        })
+    }
+}
+
+#[derive(Debug, Error)]
+#[error("{}: {inner}", .path.display())]
+struct DirEntryError {
+    inner: io::Error,
+    path: PathBuf,
 }
 
 // fn handle_dir_entry(state: &mut BackupState, dir_entry: DirEntry) -> Result<()> {
@@ -164,55 +256,3 @@ fn scan_dir(root: &Path, mut handle_dir_entry: impl FnMut(DirEntry) -> Result<()
 
 //     Ok(())
 // }
-
-struct DirEntry {
-    path: PathBuf,
-    path_from_root: PathBuf,
-    kind: DirEntryKind,
-}
-
-#[derive(strum::AsRefStr)]
-enum DirEntryKind {
-    File { ino: u64, mtime: MTime, size: u64 },
-    Directory,
-    Symlink { target: PathBuf },
-    Special,
-}
-
-impl DirEntry {
-    fn new(root: &Path, walk_dir_entry: walkdir::DirEntry) -> Result<Self, DirEntryError> {
-        let ino = walk_dir_entry.ino();
-        let path = walk_dir_entry.into_path();
-        let path_from_root = path.strip_prefix(root).unwrap().to_path_buf();
-        let ioerr = |err: io::Error| DirEntryError {
-            inner: err,
-            path: (*path).to_owned(),
-        };
-        let metadata = symlink_metadata(&*path).map_err(ioerr)?;
-        let kind = if metadata.is_file() {
-            let mtime = MTime::from(metadata.modified().map_err(ioerr)?);
-            let size = metadata.len();
-            DirEntryKind::File { ino, mtime, size }
-        } else if metadata.is_dir() {
-            DirEntryKind::Directory
-        } else if metadata.is_symlink() {
-            let target = read_link(&*path).map_err(ioerr)?;
-            DirEntryKind::Symlink { target }
-        } else {
-            DirEntryKind::Special
-        };
-
-        Ok(DirEntry {
-            path,
-            path_from_root,
-            kind,
-        })
-    }
-}
-
-#[derive(Debug, Error)]
-#[error("{}: {inner}", .path.display())]
-struct DirEntryError {
-    inner: io::Error,
-    path: PathBuf,
-}

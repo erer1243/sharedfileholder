@@ -50,6 +50,10 @@ impl From<SystemTime> for MTime {
 }
 
 pub trait ContextExt<T, E>: Context<T, E> + Sized {
+    fn path_context<P: AsRef<Path>>(self, path: P) -> Result<T> {
+        self.with_context(|| format!("{}", path.as_ref().display()))
+    }
+
     fn context_2<P: AsRef<Path>>(self, msg: &str, path: P) -> Result<T> {
         self.with_context(|| format!("{msg} ({})", path.as_ref().display()))
     }
