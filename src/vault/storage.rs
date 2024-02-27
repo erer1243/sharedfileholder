@@ -47,6 +47,17 @@ impl Storage {
         Ok(())
     }
 
+    pub fn insert_iter(
+        &self,
+        iter: impl IntoIterator<Item = (impl AsRef<Path>, Hash)>,
+    ) -> Result<()> {
+        for (source, hash) in iter {
+            self.insert_file(source.as_ref(), hash)
+                .context_2("inserting file into storage", source)?;
+        }
+        Ok(())
+    }
+
     pub fn delete_file(&self, hash: Hash) -> Result<()> {
         let path = self.path_of(hash);
         fs::remove_file(&path).context_2("remove_file", path)

@@ -12,9 +12,10 @@ use crate::{
 #[derive(Args)]
 pub struct CliArgs {}
 
+// TODO: Move this logic into vault module
 pub fn run(gargs: GlobalArgs, _args: CliArgs) -> Result<()> {
     let vault_dir = &path_or_cwd(gargs.vault_dir);
     ensure_dir_exists_and_is_empty(vault_dir)?;
     create_dir(vault_dir.join("data"))?;
-    Database::new().write(vault_dir)
+    Database::new(vault_dir).write()
 }

@@ -124,11 +124,3 @@ impl Display for Hash {
         write!(f, "{self:?}")
     }
 }
-
-pub(crate) struct PathBufDisplay(pub(crate) PathBuf);
-
-impl Display for PathBufDisplay {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.0.display())
-    }
-}

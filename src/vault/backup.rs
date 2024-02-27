@@ -4,10 +4,9 @@ use serde::{Deserialize, Deserializer, Serialize};
 use std::{
     collections::{BTreeMap, BTreeSet},
     path::{Path, PathBuf},
-    rc::Rc,
 };
 
-use super::database::{DataBlocks, FileMetadata};
+use super::database::{FileMetadata, FilesMetadata};
 use crate::util::{Hash, MTime};
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -34,13 +33,12 @@ impl Backup {
         self.symlinks.insert(link_name, target);
     }
 
-    pub fn insert_file(&mut self, path: PathBuf, ino: u64, mtime: MTime, hash: Hash, bytes: u64) {
+    pub fn insert_file(&mut self, path: PathBuf, ino: u64, mtime: MTime, hash: Hash) {
         self.files.insert(BackupFile {
             path,
             ino,
             mtime,
             hash,
-            bytes,
         });
     }
 }
@@ -51,7 +49,6 @@ pub struct BackupFile {
     pub path: PathBuf,
     pub hash: Hash,
     pub mtime: MTime,
-    pub bytes: u64,
 }
 
 impl BackupFile {
@@ -84,11 +81,11 @@ impl BackupFiles {
 pub struct BackupView<'a> {
     name: &'a str,
     backup: &'a Backup,
-    data_blocks: &'a DataBlocks,
+    data_blocks: &'a FilesMetadata,
 }
 
 impl<'a> BackupView<'a> {
-    pub fn new(name: &'a str, backup: &'a Backup, data_blocks: &'a DataBlocks) -> Self {
+    pub fn new(name: &'a str, backup: &'a Backup, data_blocks: &'a FilesMetadata) -> Self {
         Self {
             name,
             backup,
@@ -97,7 +94,7 @@ impl<'a> BackupView<'a> {
     }
 
     pub fn name(&self) -> &str {
-        &self.name
+        self.name
     }
 
     pub fn files(&self) -> &BackupFiles {
@@ -162,7 +159,7 @@ impl<'a> BackupFileView<'a> {
         self.backup_file.mtime
     }
 
-    pub fn apparent_size(&self) -> u64 {
-        self.data_block.apparent_size
+    pub fn bytes(&self) -> u64 {
+        self.data_block.bytes
     }
 }

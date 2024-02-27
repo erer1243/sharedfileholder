@@ -9,29 +9,36 @@ use std::{
     collections::BTreeMap,
     fs::File,
     io::{BufReader, BufWriter},
-    path::Path,
+    path::{Path, PathBuf},
 };
 
 const DATABASE_NAME: &str = "database.json";
 
 #[derive(Serialize, Deserialize)]
 pub struct Database {
+    #[serde(skip)]
+    path: PathBuf,
+
     backups: BTreeMap<String, Backup>,
-    data_blocks: DataBlocks,
+
+    /// XXX currently unused! Anything using this will be wrong
+    files_metadata: FilesMetadata,
 }
 
 /// POD struct with information about a file in storage.
 #[derive(Serialize, Deserialize, Copy, Clone, Debug, PartialEq, Eq)]
 pub struct FileMetadata {
     pub hash: Hash,
-    pub apparent_size: u64,
+    pub bytes: u64,
 }
 
 impl Database {
-    pub fn new() -> Self {
+    pub fn new(path: impl AsRef<Path>) -> Self {
+        let path = path.as_ref().join(DATABASE_NAME);
         Self {
+            path,
             backups: BTreeMap::new(),
-            data_blocks: DataBlocks::new(),
+            files_metadata: FilesMetadata::new(),
         }
     }
 
@@ -42,9 +49,8 @@ impl Database {
         Ok(db)
     }
 
-    pub fn write(&self, path: impl AsRef<Path>) -> Result<()> {
-        let path = path.as_ref().join(DATABASE_NAME);
-        let f = BufWriter::new(File::create(&path).context_2("writing db file", &path)?);
+    pub fn write(&self) -> Result<()> {
+        let f = BufWriter::new(File::create(&self.path).context_2("writing db file", &self.path)?);
         serde_json::to_writer_pretty(f, self)?;
         Ok(())
     }
@@ -57,41 +63,25 @@ impl Database {
 
     pub fn get_backup(&self, name: &str) -> Option<BackupView> {
         let (name, backup) = self.backups.get_key_value(name)?;
-        let data_blocks = &self.data_blocks;
-        Some(BackupView::new(name, backup, data_blocks))
+        let files_metadata = &self.files_metadata;
+        Some(BackupView::new(name, backup, files_metadata))
     }
 
-    pub fn get_data_block(&self, hash: Hash) -> Option<FileMetadata> {
-        self.data_blocks.get(&hash)?;
-        todo!()
+    pub fn get_file_metadata(&self, hash: Hash) -> Option<FileMetadata> {
+        self.files_metadata.get(&hash).copied()
     }
 
-    // pub fn insert_backup_builder(&mut self, name: &str, bb: BackupBuilder) -> BackupView {
-    //     for new_file in bb.iter_new_files() {
-    //         let data_block = FileMetadata {
-    //             hash: new_file.hash,
-    //             apparent_size: new_file.apparent_size,
-    //         };
-    //         let prev = self.data_blocks.insert(data_block);
-
-    //         if let Some(prev) = prev {
-    //             assert_eq!(
-    //                 new_file.apparent_size, prev.apparent_size,
-    //                 "two different sized data blocks with the same hash"
-    //             );
-    //         }
-    //     }
-    //     self.backups.insert(name.to_owned(), bb.into_inner());
-    //     self.get_backup(name).unwrap()
-    // }
+    pub fn insert_backup(&mut self, name: &str, backup: Backup) {
+        self.backups.insert(name.to_owned(), backup);
+    }
 }
 
 #[derive(Serialize, Deserialize, Deref, DerefMut)]
-pub struct DataBlocks(
-    #[serde(deserialize_with = "DataBlocks::deserialize")] ClonedFieldMap<FileMetadata, Hash>,
+pub struct FilesMetadata(
+    #[serde(deserialize_with = "FilesMetadata::deserialize")] ClonedFieldMap<FileMetadata, Hash>,
 );
 
-impl DataBlocks {
+impl FilesMetadata {
     fn new() -> Self {
         Self(ClonedFieldMap::new(|datablock| &datablock.hash))
     }
