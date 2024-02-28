@@ -1,6 +1,7 @@
 #[test]
 fn main() {
     let tmp = mktemp::Temp::new_dir().unwrap();
+    let tmp = tmp.release();
     let tmp = tmp.to_str().unwrap();
 
     fn try_(res: eyre::Result<()>) {
