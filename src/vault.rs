@@ -1,5 +1,6 @@
 pub mod backup;
 pub mod database;
+pub mod lock;
 pub mod storage;
 
 use eyre::{Context, Result};
@@ -8,11 +9,13 @@ use std::path::{Path, PathBuf};
 use database::Database;
 use storage::Storage;
 
+use lock::DirectoryLock;
+
 #[derive(Debug)]
 pub struct Vault {
     pub database: Database,
     pub storage: Storage,
-    closed: bool,
+    lock: DirectoryLock,
 }
 
 impl Vault {
@@ -25,24 +28,18 @@ impl Vault {
         let vault_dir = vault_dir.as_ref();
         let database = Database::load(vault_dir).context("Loading database")?;
         let storage = Storage::new(vault_dir);
+        let lock = DirectoryLock::new(vault_dir);
+        lock.blocking_lock()?;
         Ok(Vault {
             database,
             storage,
-            closed: false,
+            lock,
         })
-    }
-
-    pub fn close(mut self) -> Result<()> {
-        self.closed = true;
-        Ok(())
     }
 }
 
 impl Drop for Vault {
     fn drop(&mut self) {
-        println!("{self:#?}");
-        if !self.closed {
-            panic!("Vault was dropped without calling close()");
-        }
+        self.lock.unlock().expect("Unlocking vault failed");
     }
 }

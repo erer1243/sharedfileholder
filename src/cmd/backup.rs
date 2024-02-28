@@ -12,7 +12,7 @@ use crate::{
     cmd::GlobalArgs,
     util::{ContextExt, Hash, MTime},
     vault::{
-        backup::{Backup, BackupFile, BackupView},
+        backup::{Backup, BackupFile},
         Vault,
     },
 };
@@ -38,7 +38,7 @@ fn backup(provided_vault_dir: Option<PathBuf>, bkup_name: &str, bkup_root: &Path
     };
     vault.storage.insert_iter(new_files)?;
     vault.database.insert_backup(bkup_name, backup);
-    vault.close()?;
+    vault.database.write()?;
     Ok(())
 }
 
@@ -46,18 +46,18 @@ fn new_backup(root: &Path) -> Result<(Backup, Vec<NewFile>)> {
     scan_dir_into_backup(root, |path, _, _| Ok((Hash::of_file(path)?, true)))
 }
 
-fn update_existing_backup(root: &Path, old: BackupView) -> Result<(Backup, Vec<NewFile>)> {
+fn update_existing_backup(root: &Path, old: &Backup) -> Result<(Backup, Vec<NewFile>)> {
     scan_dir_into_backup(root, |path, ino, mtime| {
         match old.get_file(ino) {
             // A prior file exists with the same inode and a lower mtime.
             // From, this, we assume that the file has not changed and reuse the old hash.
-            Some(old_f) if mtime <= old_f.mtime() => Ok((old_f.hash(), false)),
+            Some(old) if mtime <= old.mtime => Ok((old.hash, false)),
 
             // A prior file exists with the same inode but a newer mtime.
             // We need to hash the file to check if it has changed.
-            Some(old_f) => {
+            Some(old) => {
                 let new_hash = Hash::of_file(path)?;
-                if new_hash != old_f.hash() {
+                if new_hash != old.hash {
                     Ok((new_hash, true))
                 } else {
                     Ok((new_hash, false))

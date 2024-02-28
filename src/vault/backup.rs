@@ -6,7 +6,6 @@ use std::{
     path::{Path, PathBuf},
 };
 
-use super::database::{FileMetadata, FilesMetadata};
 use crate::util::{Hash, MTime};
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -40,6 +39,20 @@ impl Backup {
     pub fn iter_files(&self) -> impl Iterator<Item = &BackupFile> {
         self.files.data().iter()
     }
+
+    pub fn iter_directories(&self) -> impl Iterator<Item = &Path> {
+        self.directories.iter().map(AsRef::as_ref)
+    }
+
+    pub fn iter_symlinks(&self) -> impl Iterator<Item = (&Path, &Path)> {
+        self.symlinks
+            .iter()
+            .map(|(src, dst)| (src.as_ref(), dst.as_ref()))
+    }
+
+    pub fn get_file(&self, ino: u64) -> Option<&BackupFile> {
+        self.files.get(&ino)
+    }
 }
 
 #[derive(Serialize, Deserialize, Debug, PartialEq, Eq, Clone)]
@@ -71,94 +84,5 @@ impl BackupFiles {
         D: Deserializer<'de>,
     {
         ClonedFieldMap::deserialize(BackupFile::ino, deserializer)
-    }
-}
-
-/// A read-only view of a backup in the database. It is used to interface with otherwise
-/// private fields inside `Backup`s and `Database`s. It is constructed with information
-/// from both, so the type is kind of co-owned between those two modules.
-pub struct BackupView<'a> {
-    name: &'a str,
-    backup: &'a Backup,
-    data_blocks: &'a FilesMetadata,
-}
-
-impl<'a> BackupView<'a> {
-    pub fn new(name: &'a str, backup: &'a Backup, data_blocks: &'a FilesMetadata) -> Self {
-        Self {
-            name,
-            backup,
-            data_blocks,
-        }
-    }
-
-    pub fn name(&self) -> &str {
-        self.name
-    }
-
-    pub fn files(&self) -> &BackupFiles {
-        &self.backup.files
-    }
-
-    pub fn directories(&self) -> &BTreeSet<PathBuf> {
-        &self.backup.directories
-    }
-
-    pub fn symlinks(&self) -> &BTreeMap<PathBuf, PathBuf> {
-        &self.backup.symlinks
-    }
-
-    fn data_block_of_file(&self, backup_file: &BackupFile) -> &FileMetadata {
-        let ino = backup_file.ino;
-        self.data_blocks
-            .get(&backup_file.hash)
-            .unwrap_or_else(|| panic!("inode {ino} in backup but has no data_blocks entry"))
-    }
-
-    pub fn get_file(&self, ino: u64) -> Option<BackupFileView> {
-        let backup_file = self.backup.files.get(&ino)?;
-        let data_block = self.data_block_of_file(backup_file);
-
-        Some(BackupFileView {
-            backup_file,
-            data_block,
-        })
-    }
-
-    pub fn iter_files(&self) -> impl Iterator<Item = BackupFileView> {
-        self.files()
-            .data()
-            .iter()
-            .map(|backup_file| BackupFileView {
-                backup_file,
-                data_block: self.data_block_of_file(backup_file),
-            })
-    }
-}
-
-pub struct BackupFileView<'a> {
-    backup_file: &'a BackupFile,
-    data_block: &'a FileMetadata,
-}
-
-impl<'a> BackupFileView<'a> {
-    pub fn ino(&self) -> u64 {
-        self.backup_file.ino
-    }
-
-    pub fn path(&self) -> &Path {
-        &self.backup_file.path
-    }
-
-    pub fn hash(&self) -> Hash {
-        self.backup_file.hash
-    }
-
-    pub fn mtime(&self) -> MTime {
-        self.backup_file.mtime
-    }
-
-    pub fn bytes(&self) -> u64 {
-        self.data_block.bytes
     }
 }

@@ -10,7 +10,7 @@ use std::{
 
 use crate::{
     util::{ensure_dir_exists_and_is_empty, path_or_cwd, ContextExt},
-    vault::{database::Database, storage::Storage},
+    vault::{database::Database, storage::Storage, Vault},
 };
 
 use super::GlobalArgs;
@@ -22,23 +22,19 @@ pub struct CliArgs {
 }
 
 pub fn run(gargs: GlobalArgs, args: CliArgs) -> Result<()> {
-    mount(
-        &path_or_cwd(gargs.vault_dir),
-        &args.mount_point,
-        &args.backup_name,
-    )
+    mount(gargs.vault_dir, &args.mount_point, &args.backup_name)
 }
 
-fn mount(vault_dir: &Path, mount_point: &Path, backup: &str) -> Result<()> {
+fn mount(vault_dir: Option<PathBuf>, mount_point: &Path, backup: &str) -> Result<()> {
     ensure_dir_exists_and_is_empty(mount_point)?;
-    let storage = Storage::new(vault_dir);
-    let db = Database::load(vault_dir)?;
-    let bkup = db
+    let vault = Vault::open_cwd(vault_dir)?;
+    let bkup = vault
+        .database
         .get_backup(backup)
         .with_context(|| format!("backup {backup:?} does not exist"))?;
 
     // create the directory structure
-    for dir in bkup.directories() {
+    for dir in bkup.iter_directories() {
         let dir_dest = mount_point.join(dir);
         create_dir_all(&dir_dest).context_2("mkdir", dir_dest)?;
     }
@@ -47,12 +43,12 @@ fn mount(vault_dir: &Path, mount_point: &Path, backup: &str) -> Result<()> {
 
     // symlink the stored files into the directories
     for file in bkup.iter_files() {
-        let file_dest = mount_point.join(file.path());
+        let file_dest = mount_point.join(&file.path);
         let file_dest = file_dest
             .absolutize_from(&cwd)
             .context_2("absolutize", &file_dest)?;
 
-        let file_source = storage.path_of(file.hash());
+        let file_source = vault.storage.path_of(file.hash);
         let file_source = file_source
             .absolutize_from(&cwd)
             .context_2("absolutize", &file_source)?;
@@ -68,14 +64,10 @@ fn mount(vault_dir: &Path, mount_point: &Path, backup: &str) -> Result<()> {
     }
 
     // create the backed-up symlinks in the directories
-    for (link, link_target) in bkup.symlinks() {
-        let link_dest = mount_point.join(link);
-        symlink(&link_dest, link_target).with_context(|| {
-            format!(
-                "symlinking {} -> {}",
-                link_dest.display(),
-                link_target.display()
-            )
+    for (link_name, target) in bkup.iter_symlinks() {
+        let link_dest = mount_point.join(link_name);
+        symlink(&link_dest, target).with_context(|| {
+            format!("symlinking {} -> {}", link_dest.display(), target.display())
         })?;
     }
 
