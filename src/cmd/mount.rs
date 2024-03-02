@@ -9,8 +9,8 @@ use std::{
 };
 
 use crate::{
-    util::{ensure_dir_exists_and_is_empty, path_or_cwd, ContextExt},
-    vault::{database::Database, storage::Storage, Vault},
+    util::{ensure_dir_exists_and_is_empty, ContextExt},
+    vault::Vault,
 };
 
 use super::GlobalArgs;
