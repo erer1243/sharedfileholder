@@ -41,6 +41,9 @@ impl Vault {
 
 impl Drop for Vault {
     fn drop(&mut self) {
-        self.lock.unlock().expect("Unlocking vault failed");
+        if let Err(e) = self.lock.unlock() {
+            eprintln!("Unlocking vault failed:");
+            eprintln!("{e}");
+        }
     }
 }
