@@ -1,29 +1,66 @@
-use super::GlobalArgs;
-
 use clap::Args;
 use eyre::Result;
 use std::path::PathBuf;
 
-#[derive(Args)]
-pub struct CliArgs {}
+use super::GlobalArgs;
+use crate::vault::Vault;
 
-pub fn run(gargs: GlobalArgs, _args: CliArgs) -> Result<()> {
-    list(gargs.vault_dir)
+#[derive(Args)]
+pub struct CliArgs {
+    backup_name: Option<String>,
+
+    /// Print full output
+    #[arg(short = 'f')]
+    full: bool,
 }
 
-fn list(provided_vault_dir: Option<PathBuf>) -> Result<()> {
-    // let vault_dir = path_or_cwd(provided_vault_dir);
-    // let db = Database::load(vault_dir)?;
+pub fn run(gargs: GlobalArgs, args: CliArgs) -> Result<()> {
+    list(gargs.vault_dir, args.backup_name, args.full)
+}
 
-    // for bkup in db.iter_backups() {
-    //     print_bkup_info(&db, &bkup);
-    // }
+fn list(
+    provided_vault_dir: Option<PathBuf>,
+    backup_name: Option<String>,
+    full: bool,
+) -> Result<()> {
+    let vault = Vault::open_cwd(provided_vault_dir)?;
+
+    match backup_name {
+        Some(name) => list_backup(&vault, &name, full),
+        None => list_all_backups(&vault, full),
+    }
 
     Ok(())
 }
 
-// fn print_bkup_info(_db: &Database, bkup: &Backup) {
-//     println!("* {}", bkup.name());
-//     let n_items = bkup.files().len() + bkup.directories().len() + bkup.symlinks().len();
-//     println!("  {n_items} items");
-// }
+fn list_all_backups(vault: &Vault, full: bool) {
+    if vault.database.iter_backups().len() == 0 {
+        println!("No backups.");
+        return;
+    }
+
+    println!("Backups:");
+    for (name, bkup) in vault.database.iter_backups() {
+        println!("- {name}");
+        if !full {
+            let n_files = bkup.iter_files().len();
+            let n_dirs = bkup.iter_directories().len();
+            let n_links = bkup.iter_symlinks().len();
+            if n_files > 0 {
+                println!("  files:       {n_files}");
+            }
+            if n_dirs > 0 {
+                println!("  directories: {n_dirs}");
+            }
+            if n_links > 0 {
+                println!("  symlinks:    {n_links}");
+            }
+        } else {
+            todo!()
+        }
+    }
+}
+
+fn list_backup(vault: &Vault, backup_name: &str, full: bool) {
+    todo!()
+}

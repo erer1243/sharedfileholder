@@ -36,18 +36,16 @@ impl Backup {
         self.files.insert(backup_file);
     }
 
-    pub fn iter_files(&self) -> impl Iterator<Item = &BackupFile> {
+    pub fn iter_files(&self) -> std::slice::Iter<'_, BackupFile> {
         self.files.data().iter()
     }
 
-    pub fn iter_directories(&self) -> impl Iterator<Item = &Path> {
-        self.directories.iter().map(AsRef::as_ref)
+    pub fn iter_directories(&self) -> std::collections::btree_set::Iter<'_, PathBuf> {
+        self.directories.iter()
     }
 
-    pub fn iter_symlinks(&self) -> impl Iterator<Item = (&Path, &Path)> {
-        self.symlinks
-            .iter()
-            .map(|(src, dst)| (src.as_ref(), dst.as_ref()))
+    pub fn iter_symlinks(&self) -> std::collections::btree_map::Iter<'_, PathBuf, PathBuf> {
+        self.symlinks.iter()
     }
 
     pub fn get_file(&self, ino: u64) -> Option<&BackupFile> {

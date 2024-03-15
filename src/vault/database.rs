@@ -12,6 +12,8 @@ use std::{
 
 const DATABASE_NAME: &str = "database.json";
 
+// TODO: refactor into Database and DatabaseInner where DatabaseInner only contains serialized data
+// and Database contains runtime metadata like the path to read/write data
 #[derive(Serialize, Deserialize, Debug)]
 pub struct Database {
     #[serde(skip)]
@@ -42,8 +44,8 @@ impl Database {
         Ok(())
     }
 
-    pub fn iter_backups(&self) -> impl Iterator<Item = &Backup> {
-        self.backups.values()
+    pub fn iter_backups(&self) -> std::collections::btree_map::Iter<'_, String, Backup> {
+        self.backups.iter()
     }
 
     pub fn get_backup(&self, name: &str) -> Option<&Backup> {
