@@ -26,10 +26,11 @@ impl Vault {
 
     pub fn open(vault_dir: impl AsRef<Path>) -> Result<Self> {
         let vault_dir = vault_dir.as_ref();
-        let database = Database::load(vault_dir).context("Loading database")?;
-        let storage = Storage::new(vault_dir);
         let lock = DirectoryLock::new(vault_dir);
         lock.blocking_lock()?;
+
+        let database = Database::load(vault_dir).context("Loading database")?;
+        let storage = Storage::new(vault_dir);
         Ok(Vault {
             database,
             storage,
