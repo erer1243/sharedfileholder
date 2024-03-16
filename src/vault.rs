@@ -19,12 +19,17 @@ pub struct Vault {
 }
 
 impl Vault {
-    pub fn open_cwd(vault_dir: Option<PathBuf>) -> Result<Self> {
-        let vault_dir = vault_dir.unwrap_or_else(|| std::env::current_dir().expect("current_dir"));
-        Self::open(vault_dir)
+    pub fn open(vault_dir: Option<PathBuf>) -> Result<Self> {
+        match vault_dir {
+            Some(provided) => Self::open_dir(provided),
+            None => match std::env::var_os("VAULT_DIR") {
+                Some(var) => Self::open_dir(var),
+                None => Self::open_dir(std::env::current_dir().unwrap()),
+            },
+        }
     }
 
-    pub fn open(vault_dir: impl AsRef<Path>) -> Result<Self> {
+    fn open_dir(vault_dir: impl AsRef<Path>) -> Result<Self> {
         let vault_dir = vault_dir.as_ref();
         let lock = DirectoryLock::new(vault_dir);
         lock.blocking_lock()?;

@@ -27,7 +27,7 @@ pub fn run(gargs: GlobalArgs, args: CliArgs) -> Result<()> {
 
 fn mount(vault_dir: Option<PathBuf>, mount_point: &Path, backup: &str) -> Result<()> {
     ensure_dir_exists_and_is_empty(mount_point)?;
-    let vault = Vault::open_cwd(vault_dir)?;
+    let vault = Vault::open(vault_dir)?;
     let bkup = vault
         .database
         .get_backup(backup)

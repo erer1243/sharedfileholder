@@ -23,7 +23,7 @@ fn list(
     backup_name: Option<String>,
     full: bool,
 ) -> Result<()> {
-    let vault = Vault::open_cwd(provided_vault_dir)?;
+    let vault = Vault::open(provided_vault_dir)?;
 
     match backup_name {
         Some(name) => list_backup(&vault, &name, full),

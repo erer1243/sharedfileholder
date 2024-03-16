@@ -30,7 +30,7 @@ pub fn run(gargs: GlobalArgs, args: CliArgs) -> Result<()> {
 type NewFile = (PathBuf, Hash);
 
 fn backup(provided_vault_dir: Option<PathBuf>, bkup_name: &str, bkup_root: &Path) -> Result<()> {
-    let mut vault = Vault::open_cwd(provided_vault_dir)?;
+    let mut vault = Vault::open(provided_vault_dir)?;
     let old_bkup = vault.database.get_backup(bkup_name);
     let (backup, new_files) = match old_bkup {
         Some(old_bkup) => update_existing_backup(bkup_root, old_bkup)?,
